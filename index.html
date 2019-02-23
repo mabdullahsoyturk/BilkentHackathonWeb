@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Socket.io</title>
+</head>
+
+<body>
+<h1>Communication with socket.io!</h1>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    var socket = io.connect('http://104.248.131.83:8080/quiz');
+
+    socket.on('connect', function() {
+        socket.on('general', function(msg){
+            console.log('general', msg);
+        });
+
+        socket.emit('login', {'phoneId':'asdasd'});
+
+        socket.on('play', function(msg){
+            console.log('play', msg);
+            //socket.emit('play', {'choice': 2});
+        });
+
+        socket.on('result', function(msg){
+            console.log('result', msg);
+        });
+
+        socket.on('realtime', function(msg) {
+            console.log('realtime', msg);
+        });
+    })
+
+</script>
+</body>
+</html>
