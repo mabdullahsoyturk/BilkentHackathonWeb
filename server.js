@@ -27,11 +27,17 @@ quizNsp.on('connection', function (socket) {
 
     var name = "Anonymous " + parseInt(Math.random()*1000 );
     var user;
+
     socket.on('login', function(msg) {
-        user = new User(socket, name, msg.phoneId);
-        if(users[msg.phoneId] != undefined){
+        user = new User(socket, msg.phoneId, name, msg.categoryList);
+        if(users[msg.phoneId] != undefined ){
+            if(users[msg.phoneId].socket == user.socket){
+                return false;
+            }
             users[msg.phoneId].socket.disconnect();
+
         }
+        console.log('Logged in with phone id ' + msg.phoneId);
         users[msg.phoneId] = user;
         //TODO: use category list
 

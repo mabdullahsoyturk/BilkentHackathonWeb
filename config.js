@@ -12,15 +12,19 @@ var categories = JSON.parse(fs.readFileSync('./data/categories.json', 'utf8'));
 for(var i = 0; i < categories.length; i++) {
     if(parseInt(categories[i]._id) >= 10)
         continue;
-
     categoryToQuestion[categories[i]._id] = [];
 }
 
 for(var i = 0; i < questions.length; i++) {
     if(parseInt(questions[i].category_id) >= 10)
         continue;
-    categoryToQuestion[parseInt(questions[i].category_id)].push(new Question(questions[i])) ;
+
+    var question = new Question(questions[i]);
+
+    categoryToQuestion[parseInt(questions[i].category_id)].push(question) ;
 }
+
+console.log(categoryToQuestion[1].length);
 
 /* PARSING DATA ENDS */
 

@@ -13,7 +13,7 @@ const GameState = {
 const StateDurations = {
     'Idle': 0.5,
     'Play': 21,
-    'Result': 2,
+    'Result': 4.7,
     'Ads': 60
 };
 
@@ -23,15 +23,39 @@ const RoundState = {
 };
 
 class QuizRound {
-    constructor(io, roundId) {
+    constructor(io, desiredQuestions, roundId) {
         this.roundId = roundId;
         this.io = io;
+        this.usersPlayed = {};
+
+        var numberOfQuestions = 0;
+        for(var i =0; i < desiredQuestions.length; i++) {
+            numberOfQuestions += desiredQuestions[i];
+        }
+
+        var inverseCDFSample = randomInt(0, numberOfQuestions);
+
+        numberOfQuestions = 0;
+        for(var i =0; i < desiredQuestions.length; i++) {
+            numberOfQuestions += desiredQuestions[i];
+            if(inverseCDFSample <  numberOfQuestions){
+                inverseCDFSample = i;
+                break;
+            }
+        }
+        if(inverseCDFSample > desiredQuestions.length || inverseCDFSample == 0)
+            inverseCDFSample = 8;
 
         this.numberOfAnswers = 0;
-        var randomCategoryId = randomInt(1, 9);
+        var randomCategoryId = inverseCDFSample;
+
         var numberOfQuestionsInCategory = categoryToQuestion[randomCategoryId].length;
-        var randomQuestionId = randomInt(0, numberOfQuestionsInCategory);
+        var randomQuestionId = randomInt(0, numberOfQuestionsInCategory-1);
         this.question = categoryToQuestion[randomCategoryId][randomQuestionId];
+        if(this.question == null || this.question == undefined){
+            this.question = categoryToQuestion[1][2];
+        }
+
         this.timeStarted = microtime.now();
         this.roundState = RoundState.Started;
         var self = this;
@@ -51,9 +75,15 @@ class QuizRound {
         return false;
     }
 
-    addAnswer(choice) {
-        this.answers[choice] += 1;
-        this.currentRound.numberOfAnswers += 1;
+    addAnswer(user_id, choice) {
+        if(this.usersPlayed[user_id] == undefined) {
+            this.answers[choice] += 1;
+            this.numberOfAnswers += 1;
+            this.usersPlayed[user_id] = true;
+            return true;
+        } else{
+            return false;
+        }
     }
 
     getOutput() {
@@ -72,6 +102,7 @@ class QuizRound {
         var nowInMicroSec = microtime.now();
         return StateDurations[GameState.PLAY] - (nowInMicroSec - this.timeStarted) / 1e6;
     }
+
     update(){
         var timeLeft = this.getTimeLeft();
         if( timeLeft <= 0) {
@@ -102,6 +133,8 @@ module.exports = class QuizRoom {
             self.update();
         }, 100);
 
+        this.desiredQuestions = [0, 10, 4, 1, 4, 5, 1, 1, 1];
+
     }
 
 
@@ -109,7 +142,7 @@ module.exports = class QuizRoom {
 
         switch (this.gameState){
             case GameState.IDLE:
-                this.currentRound = new QuizRound(this.io, this.rounds.length);
+                this.currentRound = new QuizRound(this.io, this.desiredQuestions, this.rounds.length);
                 this.gameState = undefined;
 
                 var self = this;
@@ -134,13 +167,18 @@ module.exports = class QuizRoom {
                 });
 
                 var scoreboard = [];
-                for(var user in this.users)
-                    scoreboard.push({'name':user.name, 'score':user.score});
+                for(var i = 0; i < this.users.length; i++)
+                    scoreboard.push({'phoneId':this.users[i].phoneId, 'name':this.users[i].name, 'score':this.users[i].score, 'rank': i+1});
 
+                if(this.currentRound.numberOfAnswers != 0)
+                    for(var i = 0; i < this.currentRound.answers.length; i++){
+                        this.currentRound.answers[i] = this.currentRound.answers[i] / this.currentRound.numberOfAnswers;
+                    }
 
                 this.io.in('quiz room').emit('results', {
                     'summary': this.currentRound.answers,
-                    'scoreboard': scoreboard
+                    'scoreboard': scoreboard,
+                    'roundId': this.rounds.length
                 });
 
                 // Store the old round in rounds array.
@@ -151,7 +189,6 @@ module.exports = class QuizRoom {
                 clearTimeout(this.timeoutClock);
                 var self = this;
                 this.timeoutClock = setTimeout(function() {
-
                     self.gameState = GameState.IDLE;
                 }, StateDurations[GameState.RESULT]*1000);
 
@@ -164,7 +201,14 @@ module.exports = class QuizRoom {
     }
 
     addUser(user) {
+
+        if(user.categoryList != undefined)
+            for(var i = 0; i < user.categoryList.length; i++) {
+                this.desiredQuestions[user.categoryList[i]] += 1;
+            }
+
         this.users.push(user);
+
         user.socket.join('quiz room');
         if (this.currentRound != null){
             user.socket.emit('play', this.currentRound.getOutput());
@@ -172,24 +216,39 @@ module.exports = class QuizRoom {
         user.socket.emit('general', {'stateDurations': StateDurations,
             'name': user.name});
 
+        var self = this;
         user.socket.on('move', function(message){
-            if(this.gameState != GameState.PLAY || this.currentRound.roundState != RoundState.Started){
+
+            if(self.gameState != GameState.PLAY || self.currentRound.roundState == RoundState.Finished){
                 user.socket.emit('siktir git');
                 return false;
             }
-            if(this.currentRound.isCorrectAnswer(message.choice)){
-                user.addScore(this.currentRound.getTimeLeft() + 10);
+
+
+            if(self.currentRound.addAnswer(user.phoneId, message.choice)){
+                if(self.currentRound.isCorrectAnswer(message.choice)){
+                    user.addScore(Math.round(self.currentRound.getTimeLeft(), 2) + 10);
+                }
+                console.log('User score' + user.score, 'Round answers', self.currentRound.answers);
             }
-            this.currentRound.addAnswer(message.choice);
         });
 
 
     }
 
     removeUser(user){
+        if(user == undefined)
+            return false;
+
+        if(user.categoryList != undefined)
+            for(var i = 0; i < user.categoryList.length; i++) {
+                this.desiredQuestions[user.categoryList[i]] -= 1;
+            }
+
         for (var i = 0; i < this.users.length; i++) {
             if(user == this.users[i]) {
                 this.users.splice(i, 1);
+                return false;
             }
         }
     }
